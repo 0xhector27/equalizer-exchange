@@ -9,6 +9,8 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@openzeppelin/contracts": "4.6.0",
+    "dotenv": "16.0.1",
     "hardhat": "2.9.7"
   }
 }
