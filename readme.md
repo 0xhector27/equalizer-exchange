@@ -6,7 +6,18 @@ This repo contains the contracts for Equalizer Exchange, an AMM on Fantom inspir
 
 This repo uses Hardhat framework for compilation, testing and deployment.
 
-Hardhat Setup
+- Create an enviroment file named `.env` (copy .env.example) and fill the next enviroment variables
+
+```
+# A private key of wallet address that will be used on the testnet
+PRIVATE_KEY=
+
+# Optional Fantomscan API key, for automatize the verification of the contracts at Fantomscan
+FTMSCAN_API_KEY=
+
+```
+
+- Hardhat Setup
 
 ```ml
 npm i
