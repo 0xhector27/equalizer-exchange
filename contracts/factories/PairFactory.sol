@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.9;
 
-import "../interfaces/IPairFactory.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "../Pair.sol";
 
-contract PairFactory is IPairFactory {
+contract PairFactory is Initializable {
 
     bool public isPaused;
     address public pauser;
@@ -26,7 +26,7 @@ contract PairFactory is IPairFactory {
 
     event PairCreated(address indexed token0, address indexed token1, bool stable, address pair, uint);
 
-    constructor() {
+    function initialize() public initializer {
         pauser = msg.sender;
         isPaused = false;
         feeManager = msg.sender;
@@ -93,7 +93,9 @@ contract PairFactory is IPairFactory {
         require(getPair[token0][token1][stable] == address(0), "PE"); // Pair: PAIR_EXISTS - single check is sufficient
         bytes32 salt = keccak256(abi.encodePacked(token0, token1, stable)); // notice salt includes stable as well, 3 parameters
         (_temp0, _temp1, _temp) = (token0, token1, stable);
-        pair = address(new Pair{salt:salt}());
+        Pair newPair = new Pair{salt:salt}();
+        newPair.initialize();
+        pair = address(newPair);
         getPair[token0][token1][stable] = pair;
         getPair[token1][token0][stable] = pair; // populate mapping in the reverse direction
         allPairs.push(pair);

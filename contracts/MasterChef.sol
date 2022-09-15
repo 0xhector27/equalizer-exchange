@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./interfaces/IERC20.sol";
 import "./interfaces/IEqual.sol";
 import "./interfaces/IVotingEscrow.sol";
-
-import "./libraries/Ownable.sol";
 
 // The biggest change made is using per second instead of per block for rewards
 // This is due to Fantoms extremely inconsistent block times
@@ -14,7 +13,7 @@ import "./libraries/Ownable.sol";
 // will be transferred to a governance smart contract once c is sufficiently
 // distributed and the community can show to govern itself.
 
-contract MasterChef is Ownable {
+contract MasterChef is OwnableUpgradeable {
     // Info of each user.
     struct UserInfo {
         uint256 amount;     // How many LP tokens the user has provided.
@@ -41,11 +40,11 @@ contract MasterChef is Ownable {
         uint256 accEQUALPerShare; // Accumulated EQUALs per share, times 1e12. See below.
     }
 
-    IEqual public immutable equal;
-    IVotingEscrow public immutable ve;
+    IEqual public equal;
+    IVotingEscrow public ve;
 
     // EQUAL tokens created per second.
-    uint256 public immutable equalPerSecond;
+    uint256 public equalPerSecond;
  
     uint256 public constant MAX_ALLOC_POINT = 4000;
     uint256 public constant LOCK = 86400 * 7 * 26;
@@ -55,28 +54,45 @@ contract MasterChef is Ownable {
     // Info of each user that stakes LP tokens.
     mapping (uint256 => mapping (address => UserInfo)) public userInfo;
     // Total allocation points. Must be the sum of all allocation points in all pools.
-    uint256 public totalAllocPoint = 0;
+    uint256 public totalAllocPoint;
     // The block time when EQUAL mining starts.
-    uint256 public immutable startTime;
+    uint256 public startTime;
     // The block time when EQUAL mining stops.
-    uint256 public immutable endTime;
+    uint256 public endTime;
+
+    bool public paused;
 
     event Deposit(address indexed user, uint256 indexed pid, uint256 amount);
     event Withdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
     event Harvest(address indexed user, uint256 totalReward, uint256 tokenId);
-
-    constructor(
+    event Paused(address indexed operator);
+    event Unpaused(address indexed operator);
+    
+    function initialize(
         address _ve,
         uint256 _equalPerSecond,
         uint256 _startTime,
         uint256 _endTime
-    ) {
+    ) public initializer {
+        __Ownable_init();
         equal = IEqual(IVotingEscrow(_ve).token());
         ve = IVotingEscrow(_ve);
         equalPerSecond = _equalPerSecond;
         startTime = _startTime;
         endTime = _endTime;
+    }
+
+    /**
+     * @dev Modifier to make a function callable only when the contract is not paused.
+     *
+     * Requirements:
+     *
+     * - The contract must not be paused.
+     */
+    modifier whenNotPaused() {
+        require(!paused, "Paused");
+        _;
     }
 
     function poolLength() external view returns (uint256) {
@@ -174,7 +190,7 @@ contract MasterChef is Ownable {
     }
 
     // Deposit LP tokens to MasterChef for EQUAL allocation.
-    function deposit(uint256 _pid, uint256 _amount) public {
+    function deposit(uint256 _pid, uint256 _amount) public whenNotPaused {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
 
@@ -195,7 +211,7 @@ contract MasterChef is Ownable {
     }
 
     // Withdraw LP tokens from MasterChef.
-    function withdraw(uint256 _pid, uint256 _amount) public {  
+    function withdraw(uint256 _pid, uint256 _amount) public whenNotPaused {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
 
@@ -217,7 +233,7 @@ contract MasterChef is Ownable {
         emit Withdraw(msg.sender, _pid, _amount);
     }
 
-    function harvestAll() public {
+    function harvestAll() public whenNotPaused {
         uint256 length = poolInfo.length;
         uint calc;
         uint pending;
@@ -236,6 +252,7 @@ contract MasterChef is Ownable {
 
                 if(pending > 0) {
                     totalPending += pending;
+                    user.pendingReward = 0;
                 }
             }
         }
@@ -250,7 +267,7 @@ contract MasterChef is Ownable {
     }
 
     // Withdraw without caring about rewards. EMERGENCY ONLY.
-    function emergencyWithdraw(uint256 _pid) public {
+    function emergencyWithdraw(uint256 _pid) public whenNotPaused {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
 
@@ -260,7 +277,6 @@ contract MasterChef is Ownable {
 
         pool.lpToken.transfer(address(msg.sender), oldUserAmount);
         emit EmergencyWithdraw(msg.sender, _pid, oldUserAmount);
-
     }
 
     // Safe EQUAL transfer function, just in case if rounding error causes pool to not have enough EQUALs.
@@ -271,5 +287,37 @@ contract MasterChef is Ownable {
         } else {
             equal.transfer(_to, _amount);
         }
+    }
+
+    /// @notice set start & end time for airdrop
+    /// @param _startTime start time (in seconds)
+    /// @param _duration staking duration (in days) 
+    function setTime(uint256 _startTime, uint256 _duration) external onlyOwner {
+        require(_startTime > block.timestamp, "Invalid start time");
+        startTime = _startTime;
+        endTime = _startTime + _duration * 1 days;
+    }
+
+    /// @notice set equalPerSecond value
+    function setEqualPerSecond(uint256 _equalPerSecond) external onlyOwner {
+        equalPerSecond = _equalPerSecond;
+    }
+
+    function pause() external whenNotPaused onlyOwner {
+        paused = true;
+        emit Paused(msg.sender);
+    }
+
+    function unpause() external onlyOwner {
+        require(paused, "not paused");
+        paused = false;
+        emit Unpaused(msg.sender);
+    }
+
+    /// @notice withdraw remaining tokens
+    function withdrawEQUAL(address _recipient) external onlyOwner {
+        uint256 remaining = equal.balanceOf(address(this));
+        require(remaining > 0, "No remaining tokens");
+        equal.transfer(_recipient, remaining);
     }
 }
